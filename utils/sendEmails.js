@@ -8,7 +8,7 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 export const sendVerificationEmail = async (to, code) => {
   try {
     await resend.emails.send({
-      from: "Safespace <safespace431@gmail.com>", // You can customize this in Resend dashboard
+      from: "Safespace <noreply@safespaceapp.com>", // You can customize this in Resend dashboard
       to,
       subject: "SafeSpace Email Verification",
       html: `
