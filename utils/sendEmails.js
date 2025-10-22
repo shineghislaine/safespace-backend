@@ -1,14 +1,17 @@
-import { Resend } from "resend";
-import dotenv from "dotenv";
-dotenv.config();
-
-
-const resend = new Resend(process.env.RESEND_API_KEY);
+import nodemailer from "nodemailer";
 
 export const sendVerificationEmail = async (to, code) => {
   try {
-    await resend.emails.send({
-      from: "SafeSpace <noreply@safespace.sbs>", // You can customize this in Resend dashboard
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: process.env.EMAIL_USER, // Gmail address
+        pass: process.env.EMAIL_PASS, // Gmail App Password
+      },
+    });
+
+    await transporter.sendMail({
+      from: `"SafeSpace" <${process.env.EMAIL_USER}>`,
       to,
       subject: "SafeSpace Email Verification",
       html: `
@@ -18,10 +21,8 @@ export const sendVerificationEmail = async (to, code) => {
         <p>This code will expire in 10 minutes.</p>
       `,
     });
-
-    console.log("✅ Verification email sent successfully!");
   } catch (err) {
-    console.error("❌ Error sending email:", err);
+    console.error("Error sending email:", err);
     throw err;
   }
 };
