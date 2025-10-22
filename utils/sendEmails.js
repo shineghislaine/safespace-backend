@@ -3,17 +3,15 @@ import nodemailer from "nodemailer";
 export const sendVerificationEmail = async (to, code) => {
   try {
     const transporter = nodemailer.createTransport({
-      host: process.env.EMAIL_BREVO_HOST,
-      port: process.env.EMAIL_BREVO_PORT,
-      secure: false, // use TLS
+      service: "gmail",
       auth: {
-        user: process.env.EMAIL_BREVO_USER,
-        pass: process.env.EMAIL_BREVO_PASS,
+        user: process.env.EMAIL_USER, // Gmail address
+        pass: process.env.EMAIL_PASS, // Gmail App Password
       },
     });
 
     await transporter.sendMail({
-      from: "SafeSpace <qnshineg@gmail.com>",
+      from: `"SafeSpace" <${process.env.EMAIL_USER}>`,
       to,
       subject: "SafeSpace Email Verification",
       html: `
@@ -23,10 +21,8 @@ export const sendVerificationEmail = async (to, code) => {
         <p>This code will expire in 10 minutes.</p>
       `,
     });
-
-    console.log("✅ Verification email sent successfully!");
   } catch (err) {
-    console.error("❌ Error sending email:", err);
+    console.error("Error sending email:", err);
     throw err;
   }
 };
