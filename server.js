@@ -12,19 +12,23 @@ import adminApi from "./routes/adminApi.js"; // <- new
 import messagesRoutes from "./routes/messages.js";
 import publicApi from "./routes/publicApi.js"; // <- new
 import BannedWord from "./models/BannedWord.js";
+import uploadRoutes from "./routes/upload.js";
+
 
 dotenv.config();
+
 
 const app = express();
 app.use(cors());
 app.use(express.json());
-
+app.use("/uploads", express.static("uploads"));
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminApi);
 
 app.use("/api/messages", messagesRoutes);
 app.use("/api/public", publicApi);
+app.use("/api/upload", uploadRoutes);
 
 
 app.get("/", (req, res) => {
@@ -52,17 +56,28 @@ io.on("connection", async (socket) => {
   console.log("✅ New client connected:", socket.id);
 
   // Handle user online status
-  socket.on("setUser", async (username) => {
+ socket.on("setUser", async ({ userId, username }) => {
+  try {
+    socket.userId = userId;
     socket.username = username;
 
-    await User.findOneAndUpdate(
-      { username },
-      { isOnline: true, lastSeen: new Date() }
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      { username, isOnline: true, lastSeen: new Date() },
+      { new: true }
     );
+
+    if (!updatedUser) {
+      console.warn(`⚠️ No user found with ID ${userId}`);
+      return;
+    }
 
     const allUsers = await User.find({}, "username isOnline lastSeen");
     io.emit("userStatusList", allUsers);
-  });
+  } catch (err) {
+    console.error("Error in setUser:", err);
+  }
+});
 
   // Send channel list
   const channels = await Channel.find({});
@@ -107,14 +122,21 @@ io.on("connection", async (socket) => {
 
     const messages = await Message.find({ channel })
       .sort({ createdAt: 1 })
-      .limit(50);
+      .limit(50)
+      .lean();
+
+    for (const m of messages) {
+      const u = await User.findOne({ username: m.user }).lean();
+      m.avatar = u?.avatar || "";
+    }
 
     socket.emit("channelMessages", messages);
   });
 
-  // Send message
+// Send message
 socket.on("sendMessage", async (msg) => {
-   try {
+  try {
+    // 🔹 Always re-fetch the latest user record from DB
     const sender = await User.findOne({ username: msg.user });
     if (!sender) return;
 
@@ -133,14 +155,13 @@ socket.on("sendMessage", async (msg) => {
       return;
     }
 
-
     const bannedWords = await BannedWord.find().lean();
     const bannedList = bannedWords.map((w) => w.word.toLowerCase());
 
     let filteredText = msg.text;
     let foundBadWord = null;
 
-    // Detect and replace banned words
+    // 🔹 Detect and replace banned words
     bannedList.forEach((word) => {
       const regex = new RegExp(`\\b${word}\\b`, "gi");
       if (regex.test(filteredText)) {
@@ -149,7 +170,7 @@ socket.on("sendMessage", async (msg) => {
       }
     });
 
-    // If bad word used → create report
+    // 🔹 Log report if needed
     if (foundBadWord) {
       const Report = (await import("./models/Report.js")).default;
       await Report.create({
@@ -162,7 +183,7 @@ socket.on("sendMessage", async (msg) => {
       console.log(`⚠️ Report logged for user: ${msg.user} (word: ${foundBadWord})`);
     }
 
-    // Save message (even if censored)
+    // 🔹 Save message
     const message = new Message({
       channel: msg.channel,
       user: msg.user,
@@ -170,7 +191,25 @@ socket.on("sendMessage", async (msg) => {
     });
     await message.save();
 
-    io.to(msg.channel).emit("receiveMessage", message);
+    // ✅ Use msg.avatar (frontend) if available, otherwise fallback to latest DB avatar
+    const avatarUrl = msg.avatar
+      ? msg.avatar.startsWith("http")
+        ? msg.avatar
+        : `${process.env.BASE_URL || ""}${msg.avatar}`
+      : sender.avatar
+      ? sender.avatar.startsWith("http")
+        ? sender.avatar
+        : `${process.env.BASE_URL || ""}/uploads/${sender.avatar}`
+      : "";
+
+    // ✅ Send fully enriched message to everyone
+    const enrichedMessage = {
+      ...message.toObject(),
+      user: sender.username,
+      avatar: avatarUrl,
+    };
+
+    io.to(msg.channel).emit("receiveMessage", enrichedMessage);
   } catch (err) {
     console.error("❌ Error sending message:", err);
   }
